@@ -1,0 +1,15 @@
+# plimsoll configuration. Copy to plimsoll.yml and adjust.
+# Defaults if omitted: max_methods 40, max_exported_fields 20.
+max_methods: 40
+max_exported_fields: 20
+
+# Grandfather existing offenders with an explicit number (ratchets down over
+# time) rather than a blanket exclude. "pkg.Type" scopes to one package.
+overrides: {}
+#  App:
+#    max_methods: 230
+#  dataentry.Server:
+#    max_methods: 60
+
+# Prefer an override-with-a-number over exclude where possible.
+exclude: []
