@@ -13,10 +13,21 @@ import (
 // unset top-level limit from the defaults so a config file only needs to state
 // what it changes.
 type Config struct {
-	// MaxMethods is the default cap on the number of methods declared on a
-	// single named type (pointer and value receivers counted together).
-	// Zero means "use the default"; a negative value disables the check.
+	// MaxMethods is the default cap on the total number of methods declared on
+	// a single named type — exported and unexported, pointer and value
+	// receivers counted together. This is the backstop for internal sprawl:
+	// any receiver carrying dozens of methods (even private helpers) is one
+	// struct whose fields every method can reach. Zero means "use the
+	// default"; a negative value disables the check.
 	MaxMethods int `yaml:"max_methods" json:"max_methods"`
+
+	// MaxExportedMethods is the default cap on the number of *exported* methods
+	// on a single named type. This is the sharper god-object signal: exported
+	// methods are the coupling surface consumers bind to, so the limit is
+	// deliberately stricter than MaxMethods. A type may carry many private
+	// helpers without being a god-object, but a wide public API is one by
+	// definition. Zero means "use the default"; negative disables.
+	MaxExportedMethods int `yaml:"max_exported_methods" json:"max_exported_methods"`
 
 	// MaxExportedFields is the default cap on the number of exported fields in
 	// a single struct type. Zero means "use the default"; negative disables.
@@ -41,24 +52,27 @@ type Config struct {
 // for that dimension"; a set pointer (including a negative value, which
 // disables) takes precedence.
 type Limit struct {
-	MaxMethods        *int `yaml:"max_methods" json:"max_methods"`
-	MaxExportedFields *int `yaml:"max_exported_fields" json:"max_exported_fields"`
+	MaxMethods         *int `yaml:"max_methods" json:"max_methods"`
+	MaxExportedMethods *int `yaml:"max_exported_methods" json:"max_exported_methods"`
+	MaxExportedFields  *int `yaml:"max_exported_fields" json:"max_exported_fields"`
 }
 
 // Default limits. Deliberately generous — the goal is to catch god-objects
 // (dozens of methods), not to nag well-factored types. Tighten per-project.
 const (
-	defaultMaxMethods        = 40
-	defaultMaxExportedFields = 20
+	defaultMaxMethods         = 40
+	defaultMaxExportedMethods = 20
+	defaultMaxExportedFields  = 20
 )
 
 // DefaultConfig returns the built-in configuration used when no config file is
 // supplied.
 func DefaultConfig() Config {
 	return Config{
-		MaxMethods:        defaultMaxMethods,
-		MaxExportedFields: defaultMaxExportedFields,
-		Overrides:         map[string]Limit{},
+		MaxMethods:         defaultMaxMethods,
+		MaxExportedMethods: defaultMaxExportedMethods,
+		MaxExportedFields:  defaultMaxExportedFields,
+		Overrides:          map[string]Limit{},
 	}
 }
 
@@ -69,6 +83,9 @@ func (c Config) withDefaults() Config {
 	d := DefaultConfig()
 	if c.MaxMethods == 0 {
 		c.MaxMethods = d.MaxMethods
+	}
+	if c.MaxExportedMethods == 0 {
+		c.MaxExportedMethods = d.MaxExportedMethods
 	}
 	if c.MaxExportedFields == 0 {
 		c.MaxExportedFields = d.MaxExportedFields
@@ -106,6 +123,21 @@ func (c Config) methodLimitFor(pkgName, typeName string) (int, bool) {
 	limit := c.MaxMethods
 	if ov, ok := c.overrideFor(pkgName, typeName); ok && ov.MaxMethods != nil {
 		limit = *ov.MaxMethods
+	}
+	if limit < 0 {
+		return 0, false
+	}
+	return limit, true
+}
+
+// exportedMethodLimitFor resolves the effective exported-method cap for a type.
+func (c Config) exportedMethodLimitFor(pkgName, typeName string) (int, bool) {
+	if c.isExcluded(pkgName, typeName) {
+		return 0, false
+	}
+	limit := c.MaxExportedMethods
+	if ov, ok := c.overrideFor(pkgName, typeName); ok && ov.MaxExportedMethods != nil {
+		limit = *ov.MaxExportedMethods
 	}
 	if limit < 0 {
 		return 0, false

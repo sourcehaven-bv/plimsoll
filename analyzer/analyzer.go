@@ -1,12 +1,25 @@
 // Package analyzer implements plimsoll, a go/analysis Analyzer that flags
-// "god object" types: those whose method count or exported-field count exceeds
-// a configurable load line.
+// "god object" types: those whose method count, exported-method count, or
+// exported-field count exceeds a configurable load line.
 //
 // The ecosystem has linters for interface size (interfacebloat), function
 // length (funlen) and complexity (gocyclo/gocognit), but none that caps the
 // method or field surface of a concrete type — the metric that actually tracks
 // a struct accreting into a god-object. plimsoll fills that gap, with per-type
 // overrides so existing offenders can be grandfathered and ratcheted down.
+//
+// plimsoll enforces three independent load lines:
+//
+//   - max-methods: the total method count (exported + unexported). A backstop
+//     for internal sprawl — a receiver carrying dozens of methods is one struct
+//     whose fields every method can reach, regardless of visibility.
+//   - max-exported-methods: the exported method count. The sharper god-object
+//     signal, since exported methods are the coupling surface consumers bind
+//     to; its default is stricter than max-methods.
+//   - max-fields: the exported struct-field count.
+//
+// Each line resolves independently with the same precedence (inline directive >
+// config override > default), so a type can raise one without touching another.
 package analyzer
 
 import (
@@ -63,7 +76,8 @@ func (r *runner) runWithConfigPath(pass *analysis.Pass) (any, error) {
 func (r *runner) run(pass *analysis.Pass) (any, error) {
 	pkgName := pass.Pkg.Name()
 
-	methodCounts := map[string]int{}     // type name -> method count
+	methodCounts := map[string]int{}     // type name -> total method count
+	exportedMethods := map[string]int{}  // type name -> exported method count
 	typePos := map[string]token.Pos{}    // type name -> decl position (for the report)
 	structFields := map[string]int{}     // struct type name -> exported field count
 	directives := map[string]directive{} // type name -> inline directive
@@ -83,6 +97,9 @@ func (r *runner) run(pass *analysis.Pass) (any, error) {
 			case *ast.FuncDecl:
 				if name, ok := receiverTypeName(d); ok {
 					methodCounts[name]++
+					if d.Name.IsExported() {
+						exportedMethods[name]++
+					}
 				}
 			case *ast.GenDecl:
 				if d.Tok != token.TYPE {
@@ -130,6 +147,18 @@ func (r *runner) run(pass *analysis.Pass) (any, error) {
 		}
 	}
 
+	for _, name := range sortedKeys(exportedMethods) {
+		limit, enabled := r.limit(pkgName, name, directives[name], dimExportedMethods)
+		if !enabled {
+			continue
+		}
+		if got := exportedMethods[name]; got > limit {
+			pass.Reportf(typePos[name],
+				"type %s has %d exported methods, over the load line of %d (narrow its public API into focused types, or annotate with //plimsoll:max-exported-methods=N)",
+				name, got, limit)
+		}
+	}
+
 	for _, name := range sortedKeys(structFields) {
 		limit, enabled := r.limit(pkgName, name, directives[name], dimFields)
 		if !enabled {
@@ -157,6 +186,7 @@ type dimension int
 
 const (
 	dimMethods dimension = iota
+	dimExportedMethods
 	dimFields
 )
 
@@ -179,6 +209,9 @@ func (r *runner) limit(pkgName, typeName string, dir directive, dim dimension) (
 	case dimMethods:
 		base, enabled = r.cfg.methodLimitFor(pkgName, typeName)
 		dirVal = dir.maxMethods
+	case dimExportedMethods:
+		base, enabled = r.cfg.exportedMethodLimitFor(pkgName, typeName)
+		dirVal = dir.maxExpMethods
 	case dimFields:
 		base, enabled = r.cfg.fieldLimitFor(pkgName, typeName)
 		dirVal = dir.maxFields
