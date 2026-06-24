@@ -1,7 +1,8 @@
 # plimsoll
 
-A Go linter that flags **god-object types** — those whose method count or
-exported-field count has grown past a configurable *load line*.
+A Go linter that flags **god-object types** — those whose method count,
+exported-method count, or exported-field count has grown past a configurable
+*load line*.
 
 The name comes from the [Plimsoll line](https://en.wikipedia.org/wiki/Waterline#Plimsoll_line):
 the marking on a ship's hull showing the maximum safe load. plimsoll is the
@@ -36,7 +37,7 @@ go install github.com/sourcehaven-bv/plimsoll/cmd/plimsoll@latest
 ## Usage
 
 ```sh
-plimsoll ./...                      # default caps: 40 methods, 20 exported fields
+plimsoll ./...                      # default caps: 40 methods, 20 exported methods, 20 exported fields
 plimsoll -config plimsoll.yml ./... # project caps + overrides
 ```
 
@@ -51,7 +52,8 @@ Two layers, by design:
 
 ```yaml
 # plimsoll.yml
-max_methods: 40
+max_methods: 40           # total methods (exported + unexported)
+max_exported_methods: 20  # exported methods — the public-API surface
 max_exported_fields: 20
 
 # Grandfather existing offenders with an EXPLICIT number, not a blanket skip:
@@ -59,7 +61,8 @@ max_exported_fields: 20
 # time. A bare name matches any package; "pkg.Type" scopes to one package.
 overrides:
   App:
-    max_methods: 230        # TODO(TKT-xxxx): decompose toward 40
+    max_methods: 230          # TODO(TKT-xxxx): decompose toward 40
+    max_exported_methods: 30  # raise just the public line for this one type
   dataentry.Server:
     max_methods: 60
 
@@ -80,6 +83,9 @@ type LegacyGod struct { /* ... */ }
 //plimsoll:max-methods=60
 type BusyButBounded struct { /* ... */ }
 
+//plimsoll:max-exported-methods=25
+type WidePublicAPI struct { /* ... */ }
+
 //plimsoll:max-fields=30
 type WideConfig struct { /* ... */ }
 ```
@@ -90,11 +96,19 @@ negative value.
 
 ## What counts
 
-- **Methods**: every method declared on a named type, pointer and value
-  receivers together. Methods in `_test.go` files do **not** count (test helpers
-  aren't part of a type's shipped surface).
-- **Exported fields**: exported fields of a struct, including exported embedded
-  types. Unexported fields are ignored.
+- **Methods** (`max_methods`): every method declared on a named type, exported
+  and unexported, pointer and value receivers together. This is the backstop for
+  internal sprawl — a receiver carrying dozens of private helpers is still one
+  struct whose fields they can all reach. Methods in `_test.go` files do **not**
+  count (test helpers aren't part of a type's shipped surface).
+- **Exported methods** (`max_exported_methods`): just the exported methods — the
+  coupling surface consumers bind to, and the sharper god-object signal. Its
+  default (20) is stricter than `max_methods` (40): a type may carry many private
+  helpers without being a god-object, but a wide *public* API is one by
+  definition. The two lines resolve independently, so a type can sit under the
+  exported line while a separate directive grandfathers its total count.
+- **Exported fields** (`max_exported_fields`): exported fields of a struct,
+  including exported embedded types. Unexported fields are ignored.
 
 ## golangci-lint
 

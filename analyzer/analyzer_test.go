@@ -7,8 +7,9 @@ import (
 )
 
 func TestPlimsoll_Basic(t *testing.T) {
-	// Tight caps so the small fixtures trip them: 3 methods, 3 exported fields.
-	cfg := Config{MaxMethods: 3, MaxExportedFields: 3}
+	// Tight caps so the small fixtures trip them: 3 total methods, 3 exported
+	// methods, 3 exported fields.
+	cfg := Config{MaxMethods: 3, MaxExportedMethods: 3, MaxExportedFields: 3}
 	a := New(cfg)
 	analysistest.Run(t, analysistest.TestData(), a, "basic")
 }
@@ -18,8 +19,37 @@ func TestConfig_Defaults(t *testing.T) {
 	if c.MaxMethods != defaultMaxMethods {
 		t.Errorf("MaxMethods = %d, want %d", c.MaxMethods, defaultMaxMethods)
 	}
+	if c.MaxExportedMethods != defaultMaxExportedMethods {
+		t.Errorf("MaxExportedMethods = %d, want %d", c.MaxExportedMethods, defaultMaxExportedMethods)
+	}
 	if c.MaxExportedFields != defaultMaxExportedFields {
 		t.Errorf("MaxExportedFields = %d, want %d", c.MaxExportedFields, defaultMaxExportedFields)
+	}
+}
+
+func TestConfig_ExportedMethodLimit(t *testing.T) {
+	n := 25
+	neg := -1
+	c := Config{
+		MaxExportedMethods: 15,
+		Overrides: map[string]Limit{
+			"App": {MaxExportedMethods: &n},
+			"Off": {MaxExportedMethods: &neg},
+		},
+		Exclude: []string{"Gen"},
+	}.withDefaults()
+
+	if got, ok := c.exportedMethodLimitFor("p", "App"); !ok || got != 25 {
+		t.Errorf("App override: got (%d,%v), want (25,true)", got, ok)
+	}
+	if got, ok := c.exportedMethodLimitFor("p", "Plain"); !ok || got != 15 {
+		t.Errorf("default: got (%d,%v), want (15,true)", got, ok)
+	}
+	if _, ok := c.exportedMethodLimitFor("p", "Off"); ok {
+		t.Error("negative override should disable the exported-method check")
+	}
+	if _, ok := c.exportedMethodLimitFor("p", "Gen"); ok {
+		t.Error("Gen should be excluded from the exported-method check too")
 	}
 }
 
