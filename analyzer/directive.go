@@ -19,14 +19,20 @@ import (
 //	//plimsoll:max-exported-methods=25      — override the exported-method cap
 //	//plimsoll:max-fields=30                — override the exported-field cap
 //
+// And, on the package doc comment, for the package scope:
+//
+//	//plimsoll:ignore                       — skip this package entirely
+//	//plimsoll:max-exported-types=80        — override the exported-type cap
+//
 // Multiple settings may share one comment group, one per line. A directive
-// ALWAYS wins over file/default config for that type — it is the most local,
-// most visible statement of intent.
+// ALWAYS wins over file/default config — it is the most local, most visible
+// statement of intent.
 type directive struct {
 	ignore        bool
 	maxMethods    *int
 	maxExpMethods *int
 	maxFields     *int
+	maxExpTypes   *int
 	hasOverride   bool // any of the above was set
 }
 
@@ -68,6 +74,13 @@ func parseDirective(cg *ast.CommentGroup) directive {
 			if hasVal {
 				if n, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
 					d.maxFields = &n
+					d.hasOverride = true
+				}
+			}
+		case "max-exported-types":
+			if hasVal {
+				if n, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
+					d.maxExpTypes = &n
 					d.hasOverride = true
 				}
 			}

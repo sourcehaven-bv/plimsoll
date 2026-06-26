@@ -1,14 +1,20 @@
-// Package analyzer implements plimsoll, a go/analysis Analyzer that flags
-// "god object" types: those whose method count, exported-method count, or
-// exported-field count exceeds a configurable load line.
+// Package analyzer implements plimsoll, a set of go/analysis Analyzers that flag
+// "god objects" — code grown past a configurable load line — at two scopes:
+//
+//   - the type scope (NewType): types whose method, exported-method, or
+//     exported-field count is too high;
+//   - the package scope (NewPackage): packages whose exported-type count is too
+//     high.
 //
 // The ecosystem has linters for interface size (interfacebloat), function
 // length (funlen) and complexity (gocyclo/gocognit), but none that caps the
-// method or field surface of a concrete type — the metric that actually tracks
-// a struct accreting into a god-object. plimsoll fills that gap, with per-type
-// overrides so existing offenders can be grandfathered and ratcheted down.
+// method/field surface of a concrete type or the exported-type surface of a
+// package — the metrics that actually track a struct accreting into a
+// god-object or a package into a grab-bag. plimsoll fills that gap, with
+// per-type and per-package overrides so existing offenders can be grandfathered
+// and ratcheted down.
 //
-// plimsoll enforces three independent load lines:
+// The type scope enforces three independent load lines:
 //
 //   - max-methods: the total method count (exported + unexported). A backstop
 //     for internal sprawl — a receiver carrying dozens of methods is one struct
@@ -31,27 +37,26 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
-// New returns a plimsoll Analyzer bound to cfg. cfg should already have
-// defaults applied (LoadConfig does this). Use New when embedding plimsoll as a
-// golangci-lint module plugin, where config comes from the host. For a
-// standalone binary, NewWithFlags wires a -config flag instead.
-func New(cfg Config) *analysis.Analyzer {
+// NewType returns the plimsoll type-scope Analyzer bound to cfg. cfg should
+// already have defaults applied (LoadConfig does this). Use NewType when
+// embedding plimsoll as a golangci-lint module plugin, where config comes from
+// the host. For a standalone binary, NewTypeWithFlags wires a -config flag.
+func NewType(cfg TypeConfig) *analysis.Analyzer {
 	r := &runner{cfg: cfg.withDefaults()}
 	return &analysis.Analyzer{
-		Name: "plimsoll",
+		Name: "plimsolltype",
 		Doc:  "checks that a type's method count and exported-field count stay under a configurable load line",
 		Run:  r.run,
 	}
 }
 
-// NewWithFlags returns a plimsoll Analyzer that reads its config from a
-// -plimsoll.config file path at run time. This is the form the standalone
-// command uses (via singlechecker), so the config file can be passed on the
-// command line.
-func NewWithFlags() *analysis.Analyzer {
+// NewTypeWithFlags returns the type-scope Analyzer that reads its config from a
+// -config file path at run time. This is the form the standalone command uses,
+// so the config file can be passed on the command line.
+func NewTypeWithFlags() *analysis.Analyzer {
 	r := &runner{}
 	a := &analysis.Analyzer{
-		Name: "plimsoll",
+		Name: "plimsolltype",
 		Doc:  "checks that a type's method count and exported-field count stay under a configurable load line",
 		Run:  r.runWithConfigPath,
 	}
@@ -60,7 +65,7 @@ func NewWithFlags() *analysis.Analyzer {
 }
 
 type runner struct {
-	cfg        Config
+	cfg        TypeConfig
 	configPath string
 }
 
@@ -69,7 +74,7 @@ func (r *runner) runWithConfigPath(pass *analysis.Pass) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	r.cfg = cfg
+	r.cfg = cfg.Type
 	return r.run(pass)
 }
 

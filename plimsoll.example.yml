@@ -1,15 +1,35 @@
 # plimsoll configuration. Copy to plimsoll.yml and adjust.
-# Defaults if omitted: max_methods 40, max_exported_fields 20.
-max_methods: 40
-max_exported_fields: 20
+# A single config feeds every scope; one -config flag covers `plimsoll`,
+# `plimsoll type`, and `plimsoll package`.
 
-# Grandfather existing offenders with an explicit number (ratchets down over
-# time) rather than a blanket exclude. "pkg.Type" scopes to one package.
-overrides: {}
-#  App:
-#    max_methods: 230
-#  dataentry.Server:
-#    max_methods: 60
+# Type scope — god-object types.
+# Defaults if omitted: max_methods 40, max_exported_methods 20,
+# max_exported_fields 20.
+type:
+  max_methods: 40
+  max_exported_methods: 20
+  max_exported_fields: 20
 
-# Prefer an override-with-a-number over exclude where possible.
-exclude: []
+  # Grandfather existing offenders with an explicit number (ratchets down over
+  # time) rather than a blanket exclude. "pkg.Type" scopes to one package.
+  overrides: {}
+  #  App:
+  #    max_methods: 230
+  #  dataentry.Server:
+  #    max_methods: 60
+
+  # Prefer an override-with-a-number over exclude where possible.
+  exclude: []
+
+# Package scope — god-object packages (exported-type count).
+# Default if omitted: max_exported_types 40.
+package:
+  max_exported_types: 40
+
+  # Overrides/exclude are keyed by package. Prefer the full import path (it is
+  # unique); a bare key with no slash matches any package with that short name.
+  overrides: {}
+  #  github.com/you/app/internal/store:
+  #    max_exported_types: 90
+  exclude: []
+  #  - github.com/you/app/gen   # generated package
